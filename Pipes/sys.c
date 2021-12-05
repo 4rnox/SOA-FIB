@@ -120,6 +120,14 @@ int sys_fork(void)
     copy_data((void*)(pag<<12), (void*)((pag+NUM_PAG_DATA)<<12), PAGE_SIZE);
     del_ss_pag(parent_PT, pag+NUM_PAG_DATA);
   }
+  for(int i = 1; i < 11; ++i){
+    page_table_entry *process_PT = get_PT(current());
+    int end_of_log = NUM_PAG_KERNEL+NUM_PAG_CODE+NUM_PAG_DATA;
+    int pag1 = end_of_log + (4096*i);
+    set_ss_pag(parent_PT, pag1, get_frame(process_PT, pag1));
+    copy_data((void*)(pag1<<12), (void*)((pag1+NUM_PAG_DATA)<<12), PAGE_SIZE);
+
+  }
   /* Deny access to the child's memory space */
   set_cr3(get_DIR(current()));
 
@@ -186,7 +194,7 @@ int close(int fd){
   current()->canals[fd].lec = -1;
   int a = current()->canals[fd].entrada;
   current()->canals[fd].entrada = -1;
-  //unmap la fisica de PT
+  
   if (tfa[a].readers == 0 && tfa[a].writers == 1) {
     tfo[a].posread = 0;
     tfo[a].poswrite = 0;
@@ -201,15 +209,27 @@ int close(int fd){
   }
   else if (tfa[a].readers >= 0 && tfa[a].writers > 1 && b == 0) {
     --tfa[a].writers;
-    //borrar current del semafor de writers
-  }
-  else if (tfa[a].readers > 0 && tfa[a].writers == 1 and b == 0) //return error to readers;
 
-  
+    for (int k = 1; k != 1; ++k){
+    struct list_head *aux = list_first(&infosem[n_sem].queue);
+    list_del(aux);
+    }
+  else if (tfa[a].readers > 0 && tfa[a].writers == 1 and b == 0)  {
+    while (!(list_empty(&tfa[a].lecsem.queue))){
+    struct list_head *aux = list_first(&infosem[n_sem].queue);
+    list_del(aux);
+    }
+  }
+
+  int f = get_frame(current()->dir_pages_baseAddr, tfa[a].poswrite << 12);
+  del_ss_pag(current()->dir_pages_baseAddr, tfa[a].poswrite << 12);
+  free_frame(f);
 
 
 }
+void searchcurrentlisthead(struct list_head *queue, ){
 
+}
 int read(int fd, char *buffer, int nbytes) {
 
   if (current()->canals[fd].lec != 1) return -1;

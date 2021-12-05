@@ -62,7 +62,7 @@ int sem_destroy (int n_sem){
 		struct list_head *aux = list_first(&infosem[n_sem].queue);
 		list_del(aux);
 		list_head_to_task_struct(aux)->sembit = 1;
-		update_process_state_rr(list_head_to_task_struct(aux), &readyqueue);
 	}
+	update_process_state_rr(list_head_to_task_struct(aux), &readyqueue);
 	return 0;
 }
