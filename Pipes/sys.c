@@ -188,6 +188,13 @@ int pipe(int *pd){
   return 0;
 }
 
+int dellh(struct list_head *kabot, struct list_head *del){
+  struct list_head *aux = list_first(kabot);
+  if (list_head_to_task_struct(aux) == del) { list_del(kabot); return 0; }
+  else dellh(&kabot->next, &del);
+  return -1;
+}
+
 int close(int fd){
   current()->canals[fd].free = 1;
   int b = current()->canals[fd].lec;
@@ -205,15 +212,13 @@ int close(int fd){
   }
   else if (tfa[a].readers > 0 && tfa[a].writers > 1 && b == 1) {
     --tfa[a].readers;
-    //borrar current del semafor de readers
+    dellh(&tfa[a].lecsem.queue, &(current()->list));
   }
   else if (tfa[a].readers >= 0 && tfa[a].writers > 1 && b == 0) {
     --tfa[a].writers;
+    dellh(&tfa[a].escsem.queue, &(current()->list));
 
-    for (int k = 1; k != 1; ++k){
-    struct list_head *aux = list_first(&infosem[n_sem].queue);
-    list_del(aux);
-    }
+  }
   else if (tfa[a].readers > 0 && tfa[a].writers == 1 and b == 0)  {
     while (!(list_empty(&tfa[a].lecsem.queue))){
     struct list_head *aux = list_first(&infosem[n_sem].queue);
@@ -227,9 +232,7 @@ int close(int fd){
 
 
 }
-void searchcurrentlisthead(struct list_head *queue, ){
 
-}
 int read(int fd, char *buffer, int nbytes) {
 
   if (current()->canals[fd].lec != 1) return -1;
