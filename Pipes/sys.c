@@ -186,7 +186,7 @@ int close(int fd){
   current()->canals[fd].lec = -1;
   int a = current()->canals[fd].entrada;
   current()->canals[fd].entrada = -1;
-
+  //unmap la fisica de PT
   if (tfa[a].readers == 0 && tfa[a].writers == 1) {
     tfo[a].posread = 0;
     tfo[a].poswrite = 0;
@@ -211,37 +211,18 @@ int close(int fd){
 }
 
 int read(int fd, char *buffer, int nbytes) {
-if (fd < 3){
 
-char localbuffer [TAM_BUFFER];
-int bytes_left;
-int ret;
-
-  if ((ret = check_fd(fd, ESCRIPTURA)))
-    return ret;
-  if (nbytes < 0)
-    return -EINVAL;
-  if (!access_ok(VERIFY_READ, buffer, nbytes))
-    return -EFAULT;
-  
-  bytes_left = nbytes;
-  while (bytes_left > TAM_BUFFER) {
-    copy_from_user(buffer, localbuffer, TAM_BUFFER);
-    ret = sys_write_console(localbuffer, TAM_BUFFER);
-    bytes_left-=ret;
-    buffer+=ret;
-  }
-  if (bytes_left > 0) {
-    copy_from_user(buffer, localbuffer,bytes_left);
-    ret = sys_write_console(localbuffer, bytes_left);
-    bytes_left-=ret;
-  }
+  if (current()->canals[fd].lec != 1) return -1;
+  if (nbytes < 0 || nbytes > TAM_BUFFER) return -EINVAL;
+  if (!access_ok(VERIFY_READ, buffer, nbytes)) return -EFAULT;
+  int source = tfo[current()->canals[fd].entrada].posread;
+  copy_to_user(source, buffer, nbytes);
+  ret = sys_write_console(localbuffer, bytes_left);
+  bytes_left-=ret;
+  tfo[current()->canals[fd].entrada].posread += ret;
   return (nbytes-bytes_left);
 }
-else {
-  //read de pipe
-}
-}
+
 
 
 int sys_write(int fd, char *buffer, int nbytes) {
@@ -273,7 +254,31 @@ int ret;
 	return (nbytes-bytes_left);
 }
 else {
-  //write de pipe
+  int bytes_left;
+  int ret;
+
+  if (current()->canals[fd].lec != 0) return -1;
+  if (nbytes < 0) return -EINVAL;
+  if (!access_ok(VERIFY_READ, buffer, nbytes)) return -EFAULT;
+  
+  bytes_left = nbytes;
+  
+  while (bytes_left > TAM_BUFFER) {
+    int dest = tfo[current()->canals[fd].entrada].poswrite;
+    copy_from_user(buffer, dest, TAM_BUFFER);
+    ret = sys_write_console(localbuffer, TAM_BUFFER);
+    bytes_left-=ret;
+    buffer+=ret;
+    tfo[current()->canals[fd].entrada].poswrite += ret;
+  }
+  if (bytes_left > 0) {
+    int dest = tfo[current()->canals[fd].entrada].poswrite
+    copy_from_user(buffer, dest, bytes_left);
+    ret = sys_write_console(localbuffer, bytes_left);
+    bytes_left-=ret;
+    tfo[current()->canals[fd].entrada].poswrite += ret;
+  }
+  return (nbytes-bytes_left);
 }
 }
 
