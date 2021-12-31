@@ -9,7 +9,7 @@
 #include <types.h>
 #include <mm_address.h>
 #include <stats.h>
-#include <FileManagement.h>
+#include <FilesManagement.h>
 
 #define NR_TASKS      10
 #define KERNEL_STACK_SIZE 1024
@@ -26,7 +26,7 @@ struct task_struct {
   struct stats p_stats;   /* Process stats */
   int sembit;     /* Sem destroy bit */
   int pipecounter;    /* Pipe counter  */
-  struct canal canals[15];    /* Canales (canal 1 -> canals[1] = 0xffffff)
+  struct canal canals[15];    /* Canales (canal 1 -> canals[1] = 0xffffff)*/
 };
 
 union task_union {

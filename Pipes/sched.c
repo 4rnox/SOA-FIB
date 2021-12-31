@@ -11,6 +11,7 @@
 #include <utils.h>
 #include <p_stats.h>
 
+
 /**
  * Container for the Task array and 2 additional pages (the first and the last one)
  * to protect against out of bound accesses.
@@ -169,7 +170,11 @@ void init_idle (void)
   c->total_quantum=DEFAULT_QUANTUM;
 
   init_stats(&c->p_stats);
-
+  for (int i = 0; i < 16; ++i){
+    current()->canals[i].free = 1;
+    current()->canals[i].lec = -1;
+    current()->canals[i].entrada = -1;
+  }
   allocate_DIR(c);
 
   uc->stack[KERNEL_STACK_SIZE-1]=(unsigned long)&cpu_idle; /* Return address */
@@ -196,7 +201,11 @@ void init_task1(void)
   c->state=ST_RUN;
 
   remaining_quantum=c->total_quantum;
-
+  for (int i = 0; i < 16; ++i){
+    current()->canals[i].free = 1;
+    current()->canals[i].lec = -1;
+    current()->canals[i].entrada = -1;
+  }
   init_stats(&c->p_stats);
 
   allocate_DIR(c);

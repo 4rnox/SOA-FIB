@@ -12,6 +12,7 @@
 #include <io.h>
 #include <utils.h>
 #include <sem.h>
+#include <FilesManagment>
 //#include <zeos_mm.h> /* TO BE DELETED WHEN ADDED THE PROCESS MANAGEMENT CODE TO BECOME MULTIPROCESS */
 
 int (*usr_main)(void) = (void *) PH_USER_START;
@@ -97,7 +98,18 @@ int __attribute__((__section__(".text.main")))
   infosem_ini();
   /* Move user code/data now (after the page table initialization) */
   copy_data((void *) KERNEL_START + *p_sys_size, usr_main, *p_usr_size);
-
+  
+  for (int i = 0; i < 21; ++i){
+    tfo[i].posread = 0;
+    tfo[i].poswrite = 0;
+    tfo[i].bytesleft = 0;
+    tfo[i].readers = 0;
+    tfo[i].writers = 0;
+    tfo[i].free = 1;
+    tfo[i].ini = 0;
+    INIT_LIST_HEAD(&lecsem.queue);
+    INIT_LIST_HEAD(&escsem.queue);
+  }
 
   printk("Entering user mode...");
 

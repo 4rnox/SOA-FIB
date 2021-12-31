@@ -19,7 +19,7 @@
 #define TAM_BUFFER 512
 #define LECTURA 0
 #define ESCRIPTURA 1
-extern struct tfo;
+
 void * get_ebp();
 
 int check_fd(int fd, int permissions)
@@ -102,7 +102,7 @@ int sys_fork(void)
     }
   }
 
-  /* Copy parent's SYSTEM and CODE to child. */
+  /* Copy parent's SYSTEM && CODE to child. */
   page_table_entry *parent_PT = get_PT(current());
   for (pag=0; pag<NUM_PAG_KERNEL; pag++)
   {
@@ -122,11 +122,18 @@ int sys_fork(void)
   }
   for(int i = 1; i < 11; ++i){
     page_table_entry *process_PT = get_PT(current());
-    int end_of_log = NUM_PAG_KERNEL+NUM_PAG_CODE+NUM_PAG_DATA;
+    int end_of_log = (NUM_PAG_KERNEL+NUM_PAG_CODE+NUM_PAG_DATA)*4096;
     int pag1 = end_of_log + (4096*i);
     set_ss_pag(parent_PT, pag1, get_frame(process_PT, pag1));
     copy_data((void*)(pag1<<12), (void*)((pag1+NUM_PAG_DATA)<<12), PAGE_SIZE);
 
+  }
+  for (int i = 0; i < 16; ++i){
+    uchild->task.canals[i] = current()->canals[i];
+    if (current()->canals[i].free == 0) {
+      if (current()->canals[i].lec == 1) ++tfo[current()->canals[i].entrada].readers;
+      else if (current()->canals[i].lec == 0) ++tfo[current()->canals[i].entrada].writers;
+    }
   }
   /* Deny access to the child's memory space */
   set_cr3(get_DIR(current()));
@@ -159,39 +166,47 @@ int sys_fork(void)
   return uchild->task.PID;
 }
 
-int pipe(int *pd){
-
+int pipe(int *fd){
+  int pag;
   if (current()-> pipecounter >= 10 ) return -1;
   ++(current()->pipecounter);
   int freeframe = alloc_frame();
-  if (freeframe == -1) return -1
+  if (freeframe == -1) return -1;
   page_table_entry *process_PT = get_PT(current());
-  int end_of_log = NUM_PAG_KERNEL+NUM_PAG_CODE+NUM_PAG_DATA;
-  int pag = end_of_log + (4096*current()->pipecounter);
-  set_ss_pag(process_PT, pag, freeframe);
+  int end_of_log = (NUM_PAG_KERNEL+NUM_PAG_CODE+NUM_PAG_DATA)*4096;
+  for (int i = 0; i < 12; ++i){
+    if (i == 12) return -1;
+    else{
+    int x = get_frame(process_PT, end_of_log + (4096*i));
+    if (x == 0) set_ss_pag(process_PT, end_of_log + (4096*i), freeframe);
+    i = 12;
+    pag = end_of_log + (4096*i);
+    }
+  }
 
-  for (int i = 0; i < tfo.size() && i != -1; ++i) if (tfo[i].free == 1) i = -1;
-  if (i != -1) return -1
-  tfo[i].free = 0;
-  tfo[i].bytesleft = 4096;
+  int k;
+  for (int i = 0; i < 21 && i != -1; ++i) if (tfo[i].free == 1) {int k = i; i = -1; }
+  if (k != -1) return -1;
+  tfo[k].free = 0;
+  tfo[k].bytesleft = 4096;
 
-  *fd = add_entrada_lec(i)
+  *fd = add_entrada_lec(k);
   if (*fd == -1) return -1;
-  ++tfo[i].readers;
+  ++tfo[k].readers;
 
-  *(fd+(4*sizeof(char))) = add_entrada_esc(i)
-  if (*(fd+(4*sizeof(char))) == -1) return -1;
-  ++tfo[i].writers;
+  *(((char*)fd)+4) = add_entrada_esc(k);
+  if (*(((char*)fd)+4) == -1) return -1;
+  ++tfo[k].writers;
 
-  tfo[i].posread = pag;
-  tfo[i].poswrite = pag;
+  tfo[k].posread = pag;
+  tfo[k].poswrite = pag;
+  tfo[k].ini = pag;
   return 0;
 }
 
 int dellh(struct list_head *kabot, struct list_head *del){
   struct list_head *aux = list_first(kabot);
-  if (list_head_to_task_struct(aux) == del) { list_del(kabot); return 0; }
-  else dellh(&kabot->next, &del);
+  list_for_each(kabot, &aux)if (list_head_to_task_struct(aux) == del) { list_del(kabot); return 0; }
   return -1;
 }
 
@@ -202,72 +217,92 @@ int close(int fd){
   int a = current()->canals[fd].entrada;
   current()->canals[fd].entrada = -1;
   
-  if (tfa[a].readers == 1 && tfa[a].writers == 0 && b == 1) {
+  if (tfo[a].readers == 1 && tfo[a].writers == 0 && b == 1) {
     tfo[a].posread = 0;
     tfo[a].poswrite = 0;
     tfo[a].bytesleft = 0;
     tfo[a].readers = 0;
     tfo[a].writers = 0;
     tfo[a].free = 1;
+    int f = get_frame(current()->dir_pages_baseAddr, tfo[a].poswrite << 12);
+    del_ss_pag(current()->dir_pages_baseAddr, tfo[a].poswrite << 12);
+    free_frame(f);
+
   }
 
-  else if (tfa[a].readers == 0 && tfa[a].writers == 1 && b == 0) {
+  else if (tfo[a].readers == 0 && tfo[a].writers == 1 && b == 0) {
     tfo[a].posread = 0;
     tfo[a].poswrite = 0;
     tfo[a].bytesleft = 0;
     tfo[a].readers = 0;
     tfo[a].writers = 0;
     tfo[a].free = 1;
-  }
-  else if (tfa[a].readers > 0 && tfa[a].writers > 1 && b == 1) {
-    --tfa[a].readers;
-    dellh(&tfa[a].lecsem.queue, &(current()->list));
-  }
-  else if (tfa[a].readers >= 0 && tfa[a].writers > 1 && b == 0) {
-    --tfa[a].writers;
-    dellh(&tfa[a].escsem.queue, &(current()->list));
+      int f = get_frame(current()->dir_pages_baseAddr, tfo[a].poswrite << 12);
+  del_ss_pag(current()->dir_pages_baseAddr, tfo[a].poswrite << 12);
+  free_frame(f);
 
   }
-  else if (tfa[a].readers > 0 && tfa[a].writers == 1 and b == 0)  {
+  else if (tfo[a].readers > 0 && tfo[a].writers > 1 && b == 1) {
+    --tfo[a].readers;
+    dellh(&tfo[a].lecsem.queue, &(current()->list));
+  }
+  else if (tfo[a].readers >= 0 && tfo[a].writers > 1 && b == 0) {
+    --tfo[a].writers;
+    dellh(&tfo[a].escsem.queue, &(current()->list));
+
+  }
+  else if (tfo[a].readers > 0 && tfo[a].writers == 1 && b == 0)  {
     while (!(list_empty(&(tfo[current()->canals[fd].entrada].lecsem.queue)))){
     list_del(list_first(tfo[current()->canals[fd].entrada].lecsem.queue));
     list_head_to_task_struct(list_first(tfo[current()->canals[fd].entrada].lecsem.queue))->sembit = 1;
     list_add_tail(list_first(tfo[current()->canals[fd].entrada].lecsem.queue), &readyqueue);
   }
-  else if (tfa[a].readers == 1 && tfa[a].writers > 0 and b == 1){
+}
+  else if (tfo[a].readers == 1 && tfo[a].writers > 0 && b == 1){
     while (!(list_empty(&(tfo[current()->canals[fd].entrada].escsem.queue)))){
     list_del(list_first(tfo[current()->canals[fd].entrada].escsem.queue));
     list_head_to_task_struct(list_first(tfo[current()->canals[fd].entrada].escsem.queue))->sembit = 1;
     list_add_tail(list_first(tfo[current()->canals[fd].entrada].escsem.queue), &readyqueue);
   }
-
-  int f = get_frame(current()->dir_pages_baseAddr, tfa[a].poswrite << 12);
-  del_ss_pag(current()->dir_pages_baseAddr, tfa[a].poswrite << 12);
-  free_frame(f);
+}
 
 
+return 0;
 }
 
 int read(int fd, char *buffer, int nbytes) {
 
   if (current()->canals[fd].lec != 1) return -1;
-  if (nbytes < 0 || nbytes > TAM_BUFFER) return -EINVAL;
+  if (nbytes < 0 || nbytes > 4096 || (nbytes < 4096 && nbytes > 0 && nbytes > (4096-tfo[current()->canals[fd].entrada].bytesleft))) return -EINVAL;
   if (!access_ok(VERIFY_READ, buffer, nbytes)) return -EFAULT;
   if (tfo[current()->canals[fd].entrada].bytesleft == 4096) {
     list_add_tail(&(current()->list), &(tfo[current()->canals[fd].entrada].lecsem.queue));
     sched_next_rr();
   }
-  if (current()->sembit == 1) { current()->sembit == 0; return 0; }
+  if (current()->sembit == 1) { current()->sembit == 0; return -EPIPE; }
+
   int source = tfo[current()->canals[fd].entrada].posread;
-  copy_to_user(source, buffer, nbytes);
-  ret = sys_write_console(localbuffer, bytes_left);
-  bytes_left-=ret;
-  tfo[current()->canals[fd].entrada].posread += ret;
+  int aux = nbytes;
+  int count = 0;
+  int ini = tfo[current()->canals[fd].entrada].ini;
+  while (aux > 0) {
+    if (tfo[current()->canals[fd].entrada].posread == ini+4096 && tfo[current()->canals[fd].entrada].bytesleft < 4096) tfo[current()->canals[fd].entrada].posread == ini;
+    else return count;
+    copy_to_user(source, buffer, 1);
+    --aux;
+    ++tfo[current()->canals[fd].entrada].posread;
+    ++count;
+    ++tfo[current()->canals[fd].entrada].bytesleft;
+  }
+  //|##############_____________________________|
+  // |            |
+  //read          write
+
   while (!(list_empty(&(tfo[current()->canals[fd].entrada].escsem.queue)))){
     list_del(list_first(tfo[current()->canals[fd].entrada].escsem.queue));
     list_add_tail(list_first(tfo[current()->canals[fd].entrada].escsem.queue), &readyqueue);
   }
-  return (nbytes-bytes_left);
+  return nbytes;
 }
 
 
@@ -301,8 +336,7 @@ if (fd < 3){
   return (nbytes-bytes_left);
 }
 else {
-  int bytes_left;
-  int ret;
+
 
   if (current()->canals[fd].lec != 0) return -1;
   if (nbytes < 0) return -EINVAL;
@@ -311,29 +345,27 @@ else {
     list_add_tail(&(current()->list), &(tfo[current()->canals[fd].entrada].escsem.queue));
     sched_next_rr();
   }
-  if (if (current()->sembit == 1) { current()->sembit == 0; return -EPIPE; }
-  bytes_left = nbytes;
-  
-  while (bytes_left > TAM_BUFFER) {
+  if (current()->sembit == 1) { current()->sembit == 0; return -EPIPE; }
+  int aux = nbytes;
+  int count = 0;
+  int ini = tfo[current()->canals[fd].entrada].ini;
+  while (aux > 0) {
+    if (tfo[current()->canals[fd].entrada].poswrite == ini+4096 && tfo[current()->canals[fd].entrada].bytesleft > 0) tfo[current()->canals[fd].entrada].poswrite == ini;
+    else return count;
     int dest = tfo[current()->canals[fd].entrada].poswrite;
-    copy_from_user(buffer, dest, TAM_BUFFER);
-    ret = sys_write_console(localbuffer, TAM_BUFFER);
-    bytes_left-=ret;
-    buffer+=ret;
-    tfo[current()->canals[fd].entrada].poswrite += ret;
+    copy_from_user(buffer, dest, 1);
+    --aux;
+    ++buffer;
+    ++tfo[current()->canals[fd].entrada].poswrite;
+    ++count;
+    --tfo[current()->canals[fd].entrada].bytesleft;
   }
-  if (bytes_left > 0) {
-    int dest = tfo[current()->canals[fd].entrada].poswrite
-    copy_from_user(buffer, dest, bytes_left);
-    ret = sys_write_console(localbuffer, bytes_left);
-    bytes_left-=ret;
-    tfo[current()->canals[fd].entrada].poswrite += ret;
-  }
+
   while (!(list_empty(&(tfo[current()->canals[fd].entrada].lecsem.queue)))){
     list_del(list_first(tfo[current()->canals[fd].entrada].lecsem.queue));
     list_add_tail(list_first(tfo[current()->canals[fd].entrada].lecsem.queue), &readyqueue);
   }
-  return (nbytes-bytes_left);
+  return nbytes;
 }
 }
 
@@ -348,7 +380,8 @@ int sys_gettime()
 void sys_exit()
 {  
   int i;
-  for(int j = 3; j < current()->canals.size(); ++j) close(j);
+
+  for(int j = 3; j < 16; ++j) close(j);
   page_table_entry *process_PT = get_PT(current());
   sysexitedit();
   // Deallocate all the propietary physical pages
@@ -365,6 +398,7 @@ void sys_exit()
   
   /* Restarts execution of the next process */
   sched_next_rr();
+  return;
 }
 
 /* System call to force a task switch */

@@ -1,11 +1,6 @@
 include "sem.h"
 
-struct sem{
-	int cont;
-	struct list_head queue;
-	int ini;
-	
-};
+
 
 extern struct list_head blocked;
 struct sem infosem[5];
